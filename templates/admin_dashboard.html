@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard – GREENBIN{% endblock %}
+
+{% block extra_css %}
+<style>
+.chart-bar-wrap{display:flex;flex-direction:column;gap:.55rem;}
+.chart-bar-row{display:flex;align-items:center;gap:.75rem;font-size:.82rem;}
+.cbl{width:175px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt);}
+.cb-track{flex:1;background:rgba(255,255,255,.06);border-radius:5px;height:20px;position:relative;overflow:hidden;}
+.cb-fill{height:100%;border-radius:5px;display:flex;align-items:center;padding-left:.45rem;font-size:.72rem;font-weight:700;color:rgba(0,0,0,.7);transition:width .6s ease;}
+.cb-pct{width:42px;text-align:right;flex-shrink:0;font-weight:700;font-size:.82rem;}
+
+.area-row{display:flex;align-items:center;gap:.7rem;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.83rem;}
+.area-row:last-child{border-bottom:none;}
+.ar-name{width:140px;flex-shrink:0;font-weight:600;}
+.ar-track{flex:1;background:rgba(255,255,255,.06);border-radius:4px;height:9px;}
+.ar-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--g500),var(--accent));}
+.ar-cnt{width:55px;text-align:right;color:var(--muted);}
+.ar-fill-pct{width:50px;text-align:right;color:var(--muted);font-size:.76rem;}
+.hot-zone{color:#f87171;font-size:.7rem;margin-left:.3rem;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-head">
+  <h1>🧑‍💼 Admin Control Panel</h1>
+  <p>System overview · Bin management · Collector assignments · Area intelligence</p>
+</div>
+
+<!-- Alerts -->
+{% if alerts %}
+<div class="alert-banner">
+  <div class="ab-hd"><i class="fas fa-bell"></i> {{ alerts|length }} Active Alert(s){% if alerts|length >= 5 %} <span style="font-weight:400;font-size:.7rem;color:var(--muted);">(most recent)</span>{% endif %}</div>
+  {% for a in alerts %}
+  <div class="ab-item">
+    <span><i class="fas fa-triangle-exclamation"></i> {{ a.message }}</span>
+    <form method="POST" action="/admin/resolve_alert/{{ a.id }}" style="margin:0;">
+      <button class="btn btn-sm btn-outline" style="font-size:.7rem;">Resolve</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat"><div class="stat-ico">🗑️</div><div class="stat-lbl">Total Bins</div><div class="stat-val">{{ bins|length }}</div></div>
+  <div class="stat"><div class="stat-ico">🚨</div><div class="stat-lbl">Full Bins</div><div class="stat-val" style="color:#f87171;">{{ full_bins }}</div></div>
+  <div class="stat"><div class="stat-ico">📋</div><div class="stat-lbl">Total Requests</div><div class="stat-val">{{ total_requests }}</div></div>
+  <div class="stat"><div class="stat-ico">⏳</div><div class="stat-lbl">Pending</div><div class="stat-val" style="color:#fbbf24;">{{ pending_requests }}</div></div>
+  <div class="stat"><div class="stat-ico">✅</div><div class="stat-lbl">Collections</div><div class="stat-val" style="color:#4dc462;">{{ total_collections }}</div></div>
+  <div class="stat"><div class="stat-ico">🚛</div><div class="stat-lbl">Collectors</div><div class="stat-val">{{ collectors|length }}</div></div>
+  <div class="stat"><div class="stat-ico">🏠</div><div class="stat-lbl">Residents</div><div class="stat-val">{{ residents|length }}</div></div>
+  <div class="stat"><div class="stat-ico">📦</div><div class="stat-lbl">Waste Logged</div><div class="stat-val">{{ total_waste|int }}</div></div>
+</div>
+
+<!-- Quick Analytics Row -->
+<div class="g2 mb3">
+  <!-- Bin Fill Levels Chart -->
+  <div class="card">
+    <div class="card-hd"><i class="fas fa-chart-bar" style="color:var(--accent)"></i> Bin Fill Levels</div>
+    <div class="card-bd">
+      <div class="chart-bar-wrap">
+        {% for b in bin_chart %}
+        <div class="chart-bar-row">
+          <div class="cbl" title="{{ b.label }}">{{ b.label }}</div>
+          <div class="cb-track">
+            <div class="cb-fill bf-{{ b.color }}" style="width:{{ b.pct }}%;min-width:{% if b.pct>0 %}22px{% else %}0{% endif %};">
+              {% if b.pct >= 15 %}{{ b.pct }}%{% endif %}
+            </div>
+          </div>
+          <div class="cb-pct" style="color:{% if b.pct>=80 %}#f87171{% elif b.pct>=40 %}#fbbf24{% else %}#4dc462{% endif %}">{{ b.pct }}%</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Area Intelligence -->
+  <div class="card">
+    <div class="card-hd"><i class="fas fa-map-location-dot" style="color:var(--accent)"></i> High Waste Area Intelligence</div>
+    <div class="card-bd">
+      {% set max_req = area_stats[0].req_count if area_stats else 1 %}
+      {% for a in area_stats %}
+      {% set bar_pct = ((a.req_count / (max_req if max_req > 0 else 1)) * 100)|int %}
+      <div class="area-row">
+        <div class="ar-name">
+          {{ a.area }}
+          {% if loop.index == 1 and a.req_count > 0 %}<span class="hot-zone">🔥 HOT</span>{% endif %}
+        </div>
+        <div class="ar-track"><div class="ar-fill" style="width:{{ bar_pct }}%"></div></div>
+        <div class="ar-cnt">{{ a.req_count }} req</div>
+        <div class="ar-fill-pct">{{ a.avg_fill|round(0)|int if a.avg_fill else 0 }}% fill</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="tab(this,'bins')"><i class="fas fa-trash"></i> Bins</button>
+  <button class="tab-btn" onclick="tab(this,'add-bin')"><i class="fas fa-plus"></i> Add Bin</button>
+  <button class="tab-btn" onclick="tab(this,'assign')"><i class="fas fa-link"></i> Assign</button>
+  <button class="tab-btn" onclick="tab(this,'requests')"><i class="fas fa-clipboard-list"></i> Requests</button>
+  <button class="tab-btn" onclick="tab(this,'collections')"><i class="fas fa-history"></i> Collections</button>
+</div>
+
+<!-- TAB: BINS -->
+<div class="tab-pane active" id="tab-bins">
+  <div class="bins-grid">
+    {% for b in bins %}
+    <div class="bin-card {% if b.color=='danger' %}bc-danger{% elif b.color=='warning' %}bc-warning{% endif %}">
+      <div class="bin-hd">
+        <div>
+          <div class="bin-loc">📍 {{ b.location }}</div>
+          <div class="bin-sub">{{ b.area }} · Bin #{{ b.id }} · {{ b.dist }} km</div>
+        </div>
+        <span class="badge bg-{{ b.color }}">{{ b.status }}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill bf-{{ b.color }}" style="width:{{ b.pct }}%"></div></div>
+      <div class="bin-meta">
+        <span>{{ b.current_level|int }} / {{ b.capacity|int }} units</span>
+        <strong style="color:{% if b.pct>=80 %}#f87171{% elif b.pct>=40 %}#fbbf24{% else %}#4dc462{% endif %}">{{ b.pct }}%</strong>
+      </div>
+      <div class="bin-acts">
+        <button class="btn btn-outline btn-sm" onclick="openEdit({{ b.id }},'{{ b.location|replace("'","\\'") }}','{{ b.area }}',{{ b.capacity }})">
+          <i class="fas fa-edit"></i> Edit
+        </button>
+        <form method="POST" action="/admin/delete_bin/{{ b.id }}" style="display:inline;" onsubmit="return confirm('Delete this bin?')">
+          <button class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- TAB: ADD BIN -->
+<div class="tab-pane" id="tab-add-bin">
+  <div class="card" style="max-width:560px;">
+    <div class="card-hd"><i class="fas fa-plus-circle" style="color:var(--accent)"></i> Add New Bin</div>
+    <div class="card-bd">
+      <form method="POST" action="/admin/add_bin">
+        <div class="fg"><label>Location / Address</label><input type="text" name="location" placeholder="e.g. Sector 7 – Park Gate" required></div>
+        <div class="fg"><label>Area / Zone</label>
+          <select name="area">
+            <option>Central</option><option>North Zone</option><option>South Zone</option>
+            <option>East Zone</option><option>West Zone</option>
+          </select>
+        </div>
+        <div class="g2">
+          <div class="fg"><label>Capacity (units)</label><input type="number" name="capacity" min="10" value="100" required></div>
+          <div class="fg"><label>Latitude</label><input type="number" name="lat" step="0.0001" placeholder="e.g. 12.9716"></div>
+        </div>
+        <div class="fg"><label>Longitude</label><input type="number" name="lng" step="0.0001" placeholder="e.g. 77.5946"></div>
+        <button type="submit" class="btn btn-accent"><i class="fas fa-plus"></i> Add Bin</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: ASSIGN -->
+<div class="tab-pane" id="tab-assign">
+  <div class="g2">
+    <div class="card">
+      <div class="card-hd"><i class="fas fa-link" style="color:var(--accent)"></i> Assign Collector to Bin</div>
+      <div class="card-bd">
+        <form method="POST" action="/admin/assign">
+          <div class="fg"><label>Collector</label>
+            <select name="collector_id" required>
+              <option value="">-- Select Collector --</option>
+              {% for c in collectors %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="fg"><label>Bin</label>
+            <select name="bin_id" required>
+              <option value="">-- Select Bin --</option>
+              {% for b in bins %}<option value="{{ b.id }}">Bin #{{ b.id }} – {{ b.location }} [{{ b.status }}]</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-accent btn-full"><i class="fas fa-link"></i> Assign</button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd"><i class="fas fa-unlink" style="color:#f87171"></i> Remove Assignment</div>
+      <div class="card-bd">
+        <form method="POST" action="/admin/unassign">
+          <div class="fg"><label>Collector</label>
+            <select name="collector_id" required>
+              <option value="">-- Select Collector --</option>
+              {% for c in collectors %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="fg"><label>Bin</label>
+            <select name="bin_id" required>
+              <option value="">-- Select Bin --</option>
+              {% for b in bins %}<option value="{{ b.id }}">Bin #{{ b.id }} – {{ b.location }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-danger btn-full"><i class="fas fa-unlink"></i> Remove Assignment</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: REQUESTS -->
+<div class="tab-pane" id="tab-requests">
+  <div class="card">
+    <div class="card-hd"><i class="fas fa-clipboard-list" style="color:var(--accent)"></i> All Pickup Requests</div>
+    <div class="card-bd">
+      {% if recent_requests %}
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Resident</th><th>Bin Location</th><th>Description</th><th>AI Category</th><th>Amount</th><th>Status</th><th>Time</th></tr></thead>
+          <tbody>
+            {% for r in recent_requests %}
+            <tr>
+              <td class="txt-muted">{{ loop.index }}</td>
+              <td><strong>{{ r.uname }}</strong></td>
+              <td>📍 {{ r.location }}</td>
+              <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.waste_description }}">{{ r.waste_description or '—' }}</td>
+              <td>{% if r.ai_category %}<span class="badge bg-info" style="font-size:.68rem;">{{ r.ai_category }}</span>{% else %}—{% endif %}</td>
+              <td>{{ r.amount }} u</td>
+              <td>
+                {% if r.status=='pending' %}<span class="badge bg-warning">Pending</span>
+                {% else %}<span class="badge bg-success">Done</span>{% endif %}
+              </td>
+              <td class="txt-muted" style="font-size:.74rem;">{{ r.timestamp[:16] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state"><div class="ei">📋</div><p>No requests yet.</p></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- TAB: COLLECTIONS -->
+<div class="tab-pane" id="tab-collections">
+  <div class="card">
+    <div class="card-hd"><i class="fas fa-history" style="color:var(--accent)"></i> Collection History</div>
+    <div class="card-bd">
+      {% if recent_collections %}
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Collector</th><th>Bin Location</th><th>Collected At</th></tr></thead>
+          <tbody>
+            {% for l in recent_collections %}
+            <tr>
+              <td class="txt-muted">{{ loop.index }}</td>
+              <td><strong>{{ l.uname }}</strong></td>
+              <td>📍 {{ l.location }}</td>
+              <td class="txt-muted" style="font-size:.76rem;">{{ l.timestamp[:16] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state"><div class="ei">📋</div><p>No collections recorded.</p></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-ov" id="editModal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeEdit()"><i class="fas fa-times"></i></button>
+    <div class="modal-title"><i class="fas fa-edit" style="color:var(--accent);margin-right:.45rem;"></i>Edit Bin</div>
+    <form method="POST" id="editForm">
+      <div class="fg"><label>Location</label><input type="text" name="location" id="eLocation" required></div>
+      <div class="fg"><label>Area</label>
+        <select name="area" id="eArea">
+          <option>Central</option><option>North Zone</option><option>South Zone</option>
+          <option>East Zone</option><option>West Zone</option>
+        </select>
+      </div>
+      <div class="fg"><label>Capacity</label><input type="number" name="capacity" id="eCapacity" min="10" required></div>
+      <button type="submit" class="btn btn-accent btn-full"><i class="fas fa-save"></i> Save Changes</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function tab(btn, name) {
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+}
+function openEdit(id,loc,area,cap){
+  document.getElementById('editForm').action='/admin/edit_bin/'+id;
+  document.getElementById('eLocation').value=loc;
+  document.getElementById('eArea').value=area;
+  document.getElementById('eCapacity').value=cap;
+  document.getElementById('editModal').classList.add('open');
+}
+function closeEdit(){ document.getElementById('editModal').classList.remove('open'); }
+document.getElementById('editModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeEdit(); });
+</script>
+{% endblock %}

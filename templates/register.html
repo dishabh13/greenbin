@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}GREENBIN – Register{% endblock %}
+
+{% block extra_css %}
+<style>
+.reg-wrap{max-width:410px;margin:0 auto;padding:1rem}
+.reg-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:2rem;box-shadow:var(--shadow)}
+.reg-brand{text-align:center;margin-bottom:1.5rem}
+.reg-brand-icon{font-size:2.2rem;display:block;margin-bottom:.3rem}
+.reg-brand h1{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--accent)}
+.reg-brand p{color:var(--muted);font-size:.83rem}
+.reg-title{font-family:'Syne',sans-serif;font-size:1.15rem;font-weight:700;margin-bottom:1.4rem}
+.reg-fg{margin-bottom:.9rem}
+.reg-label{display:block;font-size:.75rem;font-weight:500;color:var(--muted);margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.07em}
+.reg-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.68rem .9rem;color:var(--txt);font-family:'DM Sans',sans-serif;font-size:.92rem;transition:.2s}
+.reg-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,122,79,.1)}
+.reg-select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.68rem .9rem;color:var(--txt);font-family:'DM Sans',sans-serif;font-size:.92rem;transition:.2s}
+.reg-select:focus{outline:none;border-color:var(--accent)}
+.reg-note{font-size:.72rem;color:var(--muted);margin-top:.3rem}
+.reg-btn{width:100%;background:var(--accent);color:#fff;font-weight:700;padding:.72rem;border-radius:8px;border:none;font-size:.97rem;font-family:'Syne',sans-serif;cursor:pointer;transition:.2s;margin-top:.4rem}
+.reg-btn:hover{background:var(--accent-strong)}
+.reg-divider{text-align:center;color:var(--muted);font-size:.78rem;margin:1.1rem 0}
+.reg-link{color:var(--accent);text-decoration:none;font-weight:500}
+.reg-link:hover{text-decoration:underline}
+.reg-flash{padding:.65rem .95rem;border-radius:8px;margin-bottom:.9rem;font-size:.84rem;display:flex;align-items:center;gap:.5rem}
+.fl-danger{background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.2);color:var(--danger)}
+.fl-success{background:rgba(31,122,79,.1);border:1px solid rgba(31,122,79,.2);color:var(--success)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="reg-wrap">
+  <div class="reg-brand">
+    <span class="reg-brand-icon">🗑️</span>
+    <h1>GREENBIN</h1>
+    <p>Create your account</p>
+  </div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}{% for cat,msg in messages %}
+      <div class="reg-flash fl-{{ cat }}"><i class="fas fa-circle-info"></i> {{ msg }}</div>
+    {% endfor %}{% endif %}
+  {% endwith %}
+  <div class="reg-card">
+    <h2 class="reg-title"><i class="fas fa-user-plus" style="color:var(--accent);margin-right:.45rem;"></i>Register</h2>
+    <form method="POST">
+      <div class="reg-fg"><label class="reg-label">Full Name</label><input type="text" name="name" class="reg-input" placeholder="Your full name" required></div>
+      <div class="reg-fg"><label class="reg-label">Username</label><input type="text" name="username" class="reg-input" placeholder="Choose a username" required autocomplete="off"></div>
+      <div class="reg-fg"><label class="reg-label">Password</label><input type="password" name="password" class="reg-input" placeholder="Create a password" required></div>
+      <div class="reg-fg">
+        <label class="reg-label">Role</label>
+        <select name="role" class="reg-select">
+          <option value="resident">🏠 Resident (Citizen)</option>
+          <option value="collector">🚛 Collector (Worker)</option>
+        </select>
+        <p class="reg-note">* Admin accounts must be created by existing admins</p>
+      </div>
+      <button type="submit" class="reg-btn">Create Account →</button>
+    </form>
+    <div class="reg-divider">— already registered? —</div>
+    <p style="text-align:center;font-size:.88rem;color:var(--muted);"><a href="/login" class="reg-link">← Back to Login</a></p>
+  </div>
+</div>
+{% endblock %}

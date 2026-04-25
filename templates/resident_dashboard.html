@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Resident Dashboard – GREENBIN{% endblock %}
+
+{% block extra_css %}
+<style>
+.classifier-wrap{background:rgba(57,255,111,.04);border:1px solid rgba(57,255,111,.18);border-radius:12px;padding:1.4rem;}
+.cls-input-row{display:flex;gap:.6rem;align-items:flex-end;}
+.cls-input-row input{flex:1;}
+.cls-loader{display:none;align-items:center;gap:.5rem;font-size:.83rem;color:var(--muted);margin-top:.7rem;}
+.spinner{width:16px;height:16px;border:2px solid rgba(57,255,111,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.req-status{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:.18rem .55rem;border-radius:20px;}
+.rs-pending{background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.25);}
+.rs-completed{background:rgba(34,120,47,.25);color:#4dc462;border:1px solid rgba(77,196,98,.25);}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-head">
+  <h1>🏠 Resident Dashboard</h1>
+  <p>Log pickup requests, classify your waste with AI, and track bin status</p>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat"><div class="stat-ico">🗑️</div><div class="stat-lbl">Total Bins</div><div class="stat-val">{{ bins|length }}</div></div>
+  <div class="stat"><div class="stat-ico">🚨</div><div class="stat-lbl">Full Bins</div><div class="stat-val" style="color:#f87171;">{{ bins|selectattr('status','equalto','Full')|list|length }}</div></div>
+  <div class="stat"><div class="stat-ico">✅</div><div class="stat-lbl">Available</div><div class="stat-val">{{ bins|rejectattr('status','equalto','Full')|list|length }}</div></div>
+  <div class="stat"><div class="stat-ico">📋</div><div class="stat-lbl">My Requests</div><div class="stat-val">{{ requests|length }}</div></div>
+</div>
+
+<div class="g2 mb3">
+  <!-- AI Waste Classifier -->
+  <div class="card">
+    <div class="card-hd"><i class="fas fa-robot" style="color:var(--accent)"></i> AI Waste Classifier</div>
+    <div class="card-bd">
+      <div class="classifier-wrap">
+        <div class="fg" style="margin-bottom:.6rem;">
+          <label>Describe your waste</label>
+          <div class="cls-input-row">
+            <input type="text" id="wasteDesc" placeholder="e.g. old mobile phone, vegetable peels, paint can…">
+            <button class="btn btn-accent" onclick="classifyWaste()"><i class="fas fa-wand-magic-sparkles"></i> Classify</button>
+          </div>
+        </div>
+        <div class="cls-loader" id="clsLoader"><div class="spinner"></div> Analyzing with AI…</div>
+        <div id="aiResult" style="display:none;"></div>
+      </div>
+
+      <!-- Pickup Request Form -->
+      <div style="margin-top:1.4rem;">
+        <div class="sec-title" style="margin-bottom:.9rem;"><i class="fas fa-paper-plane" style="color:var(--accent)"></i> Submit Pickup Request</div>
+        <form method="POST" action="/resident/request" id="reqForm">
+          <input type="hidden" name="waste_description" id="hdDesc">
+          <input type="hidden" name="ai_result" id="hdAI">
+          <div class="fg">
+            <label>Select Bin</label>
+            <select name="bin_id" required>
+              <option value="">-- Choose a bin --</option>
+              {% for b in bins %}
+              <option value="{{ b.id }}" {% if b.status=='Full' %}disabled{% endif %}>
+                📍 {{ b.location }} ({{ b.area }}) — {{ b.pct }}%{% if b.status=='Full' %} [FULL]{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fg">
+            <label>Estimated Waste Amount (units)</label>
+            <input type="number" name="amount" min="1" max="500" value="10" step="0.5">
+          </div>
+          <button type="submit" class="btn btn-accent btn-full" onclick="prepareForm()">
+            <i class="fas fa-paper-plane"></i> Submit Pickup Request
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bins Status -->
+  <div>
+    <div class="sec-title"><i class="fas fa-map-marker-alt" style="color:var(--accent)"></i> Nearby Bins</div>
+    <div style="display:flex;flex-direction:column;gap:.8rem;max-height:520px;overflow-y:auto;padding-right:.3rem;">
+      {% for b in bins %}
+      <div class="card" style="padding:1rem;border-left:3px solid {% if b.color=='danger' %}#ef4444{% elif b.color=='warning' %}#f59e0b{% elif b.color=='info' %}#3b82f6{% else %}#22c55e{% endif %};">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;">
+          <div>
+            <div style="font-weight:600;font-size:.9rem;">📍 {{ b.location }}</div>
+            <div class="txt-muted" style="font-size:.72rem;">{{ b.area }} · {{ b.dist }} km from depot</div>
+          </div>
+          <span class="badge bg-{{ b.color }}">{{ b.status }}</span>
+        </div>
+        <div class="bar-bg"><div class="bar-fill bf-{{ b.color }}" style="width:{{ b.pct }}%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted);">
+          <span>{{ b.current_level|int }} / {{ b.capacity|int }} units</span>
+          <strong style="color:{% if b.pct>=80 %}#f87171{% elif b.pct>=40 %}#fbbf24{% else %}#4dc462{% endif %}">{{ b.pct }}%</strong>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- My Requests History -->
+<div class="card">
+  <div class="card-hd"><i class="fas fa-history" style="color:var(--accent)"></i> My Pickup Requests</div>
+  <div class="card-bd">
+    {% if requests %}
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Bin Location</th><th>Waste Description</th><th>AI Category</th><th>Amount</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody>
+          {% for r in requests %}
+          <tr>
+            <td class="txt-muted">{{ loop.index }}</td>
+            <td>📍 {{ r.location }}</td>
+            <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.waste_description }}">
+              {{ r.waste_description or '—' }}
+            </td>
+            <td>{% if r.ai_category %}<span class="badge bg-info" style="font-size:.7rem;">{{ r.ai_category }}</span>{% else %}<span class="txt-muted">—</span>{% endif %}</td>
+            <td><strong>{{ r.amount }}</strong> u</td>
+            <td><span class="req-status rs-{{ r.status }}">{{ r.status }}</span></td>
+            <td class="txt-muted" style="font-size:.76rem;">{{ r.timestamp[:16] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><div class="ei">📋</div><p>No requests yet. Use the classifier and submit your first request!</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentAI = null;
+
+async function classifyWaste() {
+  const desc = document.getElementById('wasteDesc').value.trim();
+  if (!desc) { alert('Please describe your waste first.'); return; }
+
+  document.getElementById('clsLoader').style.display = 'flex';
+  document.getElementById('aiResult').style.display = 'none';
+  currentAI = null;
+
+  try {
+    const res = await fetch('/resident/classify', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({description: desc})
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    currentAI = data;
+    const recycle = data.recycle ? '<span class="ai-pill ap-rec">♻️ Recyclable</span>' : '<span class="ai-pill ap-norec">🚫 Not Recyclable</span>';
+    const pri = `<span class="ai-pill ap-pri">⚡ ${data.priority} Priority</span>`;
+
+    document.getElementById('aiResult').innerHTML = `
+      <div class="ai-result">
+        <div class="ai-cat">🗂️ ${data.category} <span style="font-size:.8rem;font-weight:400;color:var(--muted);">— ${data.subcategory}</span></div>
+        <div class="ai-tip">${data.disposal_tip}</div>
+        <div class="ai-pills">${recycle}${pri}</div>
+      </div>`;
+    document.getElementById('aiResult').style.display = 'block';
+  } catch(e) {
+    document.getElementById('aiResult').innerHTML = `<div style="color:#f87171;font-size:.83rem;margin-top:.5rem;">⚠️ Classification failed: ${e.message}</div>`;
+    document.getElementById('aiResult').style.display = 'block';
+  }
+  document.getElementById('clsLoader').style.display = 'none';
+}
+
+function prepareForm() {
+  document.getElementById('hdDesc').value = document.getElementById('wasteDesc').value;
+  document.getElementById('hdAI').value = currentAI ? JSON.stringify(currentAI) : '{}';
+}
+
+// Allow enter key to trigger classify
+document.getElementById('wasteDesc').addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();classifyWaste();} });
+</script>
+{% endblock %}
