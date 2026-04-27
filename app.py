@@ -724,5 +724,9 @@ def api_area_stats():
 
 if __name__ == '__main__':
     init_db()
-    start_auto_fill()
+
+    # Only run auto-fill in real app, not during testing
+    if not os.environ.get("TESTING"):
+        start_auto_fill()
+
     app.run(debug=True, port=5000)
