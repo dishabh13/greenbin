@@ -729,4 +729,4 @@ if __name__ == '__main__':
     if not os.environ.get("TESTING"):
         start_auto_fill()
 
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
