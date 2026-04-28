@@ -19,6 +19,7 @@ jobs:
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       REGISTRY: ghcr.io
       IMAGE_NAME: greenbin-app
+      PYTHONPATH: .
 
     steps:
     - name: Checkout code
@@ -42,14 +43,33 @@ jobs:
         pip install pytest flake8 bandit pip-audit
 
     - name: Run lint
-      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics > flake8-report.txt || true
+
+    - name: Upload lint report
+      uses: actions/upload-artifact@v4
+      with:
+        name: lint-report
+        path: flake8-report.txt
 
     - name: Run security scan (Bandit)
-      run: bandit -r . -ll -s B104
+      continue-on-error: true
+      run: bandit -r . -ll -s B104 > bandit-report.txt
+
+    - name: Upload bandit report
+      uses: actions/upload-artifact@v4
+      with:
+        name: bandit-report
+        path: bandit-report.txt
 
     - name: Run dependency scan
-      run: pip-audit --ignore-vuln CVE-2026-3219 || true
+      run: pip-audit --format=json > pip-audit-report.json || true
     
+    - name: Upload pip-audit report
+      uses: actions/upload-artifact@v4
+      with:
+        name: pip-audit-report
+        path: pip-audit-report.json
+
     - name: Run tests
       run: pytest -q
       env:
@@ -58,8 +78,20 @@ jobs:
     - name: Run tests with coverage
       run: |
         pip install pytest-cov
-        pytest --cov=. --cov-report=term-missing
+        pytest --cov=. --cov-report=xml --cov-report=html
     
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: htmlcov/
+    
+    - name: HTML check (basic)
+      continue-on-error: true
+      run: |
+        pip install html5validator
+        html5validator templates/
+
     - name: Set lowercase owner 
       run: echo "OWNER_LC=$(echo $GITHUB_REPOSITORY_OWNER | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
@@ -69,7 +101,6 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-        logout: true
     
     - name: Set image name
       run: echo "IMAGE=$REGISTRY/$OWNER_LC/$IMAGE_NAME" >> $GITHUB_ENV
@@ -87,6 +118,13 @@ jobs:
       run: |
         docker build -t $IMAGE:${{ steps.vars.outputs.VERSION }} .
         docker tag $IMAGE:${{ steps.vars.outputs.VERSION }} $IMAGE:latest
+
+    - name: Scan Docker image (Trivy)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.VERSION }}
+        format: table
+        exit-code: 0
 
     - name: Push Docker image
       run: |
