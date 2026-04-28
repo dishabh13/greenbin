@@ -50,13 +50,17 @@ jobs:
     - name: Run dependency scan
       run: pip-audit --ignore-vuln CVE-2026-3219 || true
     
-    - name: Init DB for tests
-      run: python -c "from app import init_db; init_db()"
-
     - name: Run tests
-      run: pytest
+      run: pytest -q
+      env:
+        TESTING: "1"
+
+    - name: Run tests with coverage
+      run: |
+        pip install pytest-cov
+        pytest --cov=. --cov-report=term-missing
     
-    - name: Set lowercase owner
+    - name: Set lowercase owner 
       run: echo "OWNER_LC=$(echo $GITHUB_REPOSITORY_OWNER | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
     - name: Log in to GHCR

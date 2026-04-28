@@ -1,20 +1,22 @@
 import sys
 import os
-import pytest
+
+if os.path.exists("test.db"):
+    os.remove("test.db")
 
 # Fix import path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import pytest
+from app import app, init_db
 
 @pytest.fixture
 def client():
-    os.environ["TESTING"] = "1"
-    from app import app
     app.config["TESTING"] = True
+    app.config["DATABASE"] = "test.db" 
 
     with app.app_context():
-        from database import init_db
-        init_db()  
+        init_db()   
 
     with app.test_client() as client:
         yield client
@@ -43,3 +45,8 @@ def test_login_fail(client):
 def test_admin_redirect(client):
     res = client.get('/admin/dashboard')
     assert res.status_code in [302, 401, 403]
+
+@pytest.fixture(scope="session", autouse=True)
+def clean_db():
+    if os.path.exists("test.db"):
+        os.remove("test.db")

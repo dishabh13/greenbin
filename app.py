@@ -1,10 +1,11 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, current_app
 from database import init_db, get_db, close_db, haversine, hp
 from datetime import datetime
 import threading, time, os, requests as req_lib, json
 from route_optimizer import plan_collector_routes
 
 app = Flask(__name__)
+app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
 app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
@@ -344,7 +345,7 @@ def auto_fill_bins():
     while True:
         time.sleep(60)  # 60 seconds = "1 simulated hour"
         try:
-            conn = sqlite3.connect('greenbin.db')
+            conn = sqlite3.connect(current_app.config["DATABASE"])
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             bins = c.execute('SELECT id, capacity, current_level FROM bins').fetchall()

@@ -3,13 +3,14 @@ from flask import g
 import os
 import hashlib
 import math
+from flask import g, current_app
 
 DATABASE = os.path.join(os.path.dirname(__file__), 'greenbin.db')
 
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
+        db = g._database = sqlite3.connect(current_app.config["DATABASE"])
         db.row_factory = sqlite3.Row
     return db
 
@@ -29,9 +30,8 @@ def hp(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def init_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+    db = get_db()
+    c = db.cursor()
 
     c.executescript('''
         CREATE TABLE IF NOT EXISTS users (
@@ -216,6 +216,5 @@ def init_db():
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_unique ON assignments (collector_id, bin_id)')
     c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_route_plan_stop_unique ON route_plan_stops (plan_id, trip_number, stop_order)')
 
-    conn.commit()
-    conn.close()
+    db.commit()
     print("Database initialized with seed data.")
