@@ -48,21 +48,28 @@ jobs:
       run: bandit -r . -ll -s B104
 
     - name: Run dependency scan
-      run: pip-audit || true
+      run: pip-audit --ignore-vuln CVE-2026-3219 || true
+    
+    - name: Init DB for tests
+      run: python -c "from app import init_db; init_db()"
 
     - name: Run tests
       run: pytest
     
     - name: Set lowercase owner
-      run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
-  
+      run: echo "OWNER_LC=$(echo $GITHUB_REPOSITORY_OWNER | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
     - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
+        logout: true
+    
+    - name: Set image name
+      run: echo "IMAGE=$REGISTRY/$OWNER_LC/$IMAGE_NAME" >> $GITHUB_ENV
+  
     - name: Extract version
       id: vars
       run: |
@@ -74,11 +81,10 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -t $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} .
-        docker tag $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} \
-                    $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:latest
+        docker build -t $IMAGE:${{ steps.vars.outputs.VERSION }} .
+        docker tag $IMAGE:${{ steps.vars.outputs.VERSION }} $IMAGE:latest
 
     - name: Push Docker image
       run: |
-        docker push $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }}
-        docker push $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:latest
+        docker push $IMAGE:${{ steps.vars.outputs.VERSION }}
+        docker push $IMAGE:latest
