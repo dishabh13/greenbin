@@ -5,7 +5,7 @@ import threading, time, os, requests as req_lib, json
 from route_optimizer import plan_collector_routes
 
 app = Flask(__name__)
-app.secret_key = 'greenbin_secret_2024'
+app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
@@ -448,7 +448,8 @@ def add_request():
 
     ai = {}
     try: ai = json.loads(ai_json)
-    except: pass
+    except Exception as e:
+        print(f"Error: {e}")
 
     db = get_db()
     bin_ = db.execute('SELECT * FROM bins WHERE id=?', (bin_id,)).fetchone()
@@ -729,4 +730,5 @@ if __name__ == '__main__':
     if not os.environ.get("TESTING"):
         start_auto_fill()
 
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = os.environ.get("FLASK_DEBUG", "False") == "True"
+    app.run(host="0.0.0.0", port=5000, debug=debug) # nosec B104

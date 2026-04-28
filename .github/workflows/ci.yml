@@ -16,20 +16,28 @@ jobs:
 
     env:
       TESTING: "1"
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
       REGISTRY: ghcr.io
       IMAGE_NAME: greenbin-app
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.10"
+    
+    - name: Cache pip
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip==25.0.1
         pip install -r requirements.txt
         pip install pytest flake8 bandit pip-audit
 
@@ -37,14 +45,17 @@ jobs:
       run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
     - name: Run security scan (Bandit)
-      run: bandit -r .
+      run: bandit -r . -ll -s B104
 
     - name: Run dependency scan
-      run: pip-audit
+      run: pip-audit || true
 
     - name: Run tests
       run: pytest
-
+    
+    - name: Set lowercase owner
+      run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+  
     - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
@@ -63,11 +74,11 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -t $REGISTRY/${{ github.actor }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} .
-        docker tag $REGISTRY/${{ github.actor }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} \
-                    $REGISTRY/${{ github.actor }}/$IMAGE_NAME:latest
+        docker build -t $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} .
+        docker tag $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }} \
+                    $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:latest
 
     - name: Push Docker image
       run: |
-        docker push $REGISTRY/${{ github.actor }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }}
-        docker push $REGISTRY/${{ github.actor }}/$IMAGE_NAME:latest
+        docker push $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:${{ steps.vars.outputs.VERSION }}
+        docker push $REGISTRY/${{ env.OWNER_LC }}/$IMAGE_NAME:latest

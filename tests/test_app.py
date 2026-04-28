@@ -12,6 +12,10 @@ def client():
     from app import app
     app.config["TESTING"] = True
 
+    with app.app_context():
+        from database import init_db
+        init_db()  
+
     with app.test_client() as client:
         yield client
 
