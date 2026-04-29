@@ -1,5 +1,5 @@
 flask>=2.3.0
 requests>=2.31.0
-pytest
-flake8
-gunicorn
+pytest>=8.0.0
+flake8>=7.0.0
+gunicorn>=21.2.0
