@@ -1,11 +1,12 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, current_app
 from database import init_db, get_db, close_db, haversine, hp
 from datetime import datetime
 import threading, time, os, requests as req_lib, json
 from route_optimizer import plan_collector_routes
 
 app = Flask(__name__)
-app.secret_key = 'greenbin_secret_2024'
+app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
+app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
@@ -344,7 +345,7 @@ def auto_fill_bins():
     while True:
         time.sleep(60)  # 60 seconds = "1 simulated hour"
         try:
-            conn = sqlite3.connect('greenbin.db')
+            conn = sqlite3.connect(current_app.config["DATABASE"])
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             bins = c.execute('SELECT id, capacity, current_level FROM bins').fetchall()
@@ -448,7 +449,8 @@ def add_request():
 
     ai = {}
     try: ai = json.loads(ai_json)
-    except: pass
+    except Exception as e:
+        print(f"Error: {e}")
 
     db = get_db()
     bin_ = db.execute('SELECT * FROM bins WHERE id=?', (bin_id,)).fetchone()
@@ -724,5 +726,10 @@ def api_area_stats():
 
 if __name__ == '__main__':
     init_db()
-    start_auto_fill()
-    app.run(debug=True, port=5000)
+
+    # Only run auto-fill in real app, not during testing
+    if not os.environ.get("TESTING"):
+        start_auto_fill()
+
+    debug = os.environ.get("FLASK_DEBUG", "False") == "True"
+    app.run(host="0.0.0.0", port=5000, debug=debug) # nosec B104
