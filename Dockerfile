@@ -1,7 +1,8 @@
 # Use lightweight base image
 FROM python:3.11-slim-bookworm
 
-LABEL org.opencontainers.image.source="https://github.com/diyajohn2024/greenybin"
+ARG REPO_URL
+LABEL org.opencontainers.image.source=$REPO_URL
 
 # Prevent Python from writing .pyc files
 ENV PYTHONDONTWRITEBYTECODE=1

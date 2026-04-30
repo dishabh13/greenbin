@@ -118,7 +118,10 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -t $IMAGE:${{ steps.vars.outputs.VERSION }} .
+        docker build \
+          --build-arg REPO_URL=https://github.com/${{ github.repository }} \
+          -t $IMAGE:${{ steps.vars.outputs.VERSION }} .
+        
         if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
           docker tag $IMAGE:${{ steps.vars.outputs.VERSION }} $IMAGE:latest
         fi
