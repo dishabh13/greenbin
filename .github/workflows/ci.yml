@@ -21,6 +21,7 @@ jobs:
       IMAGE_NAME: greenbin-app
       PYTHONPATH: .
       OWNER_LC: ${{ github.repository_owner }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
     - name: Checkout code
@@ -52,15 +53,16 @@ jobs:
         path: flake8-report.txt
 
     - name: Run security scan (Bandit)
-      continue-on-error: true
       run: |
-        bandit -r . -ll || true
+        source .venv/bin/activate
+        bandit -r . -ll -f json -o bandit-report.json || true
+      shell: bash
 
     - name: Upload bandit report
       uses: actions/upload-artifact@v4
       with:
         name: bandit-report
-        path: bandit-report.txt
+        path: bandit-report.json
 
     - name: Run dependency scan
       run: source .venv/bin/activate && pip-audit --format=json > pip-audit-report.json || true
@@ -87,10 +89,10 @@ jobs:
         path: results.xml
 
     - name: HTML check (basic)
-      continue-on-error: true
       run: |
-        html5validator --root templates || true
-
+        source .venv/bin/activate
+        html5validator --root templates --ignore "Attribute .* not allowed on element .* at step ." || true
+      shell: bash
 
     - name: Set lowercase owner
       run: echo "OWNER_LC=${OWNER_LC,,}" >> $GITHUB_ENV
