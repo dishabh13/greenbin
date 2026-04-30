@@ -5,7 +5,7 @@ import threading, time, os, requests as req_lib, json
 from route_optimizer import plan_collector_routes
 
 app = Flask(__name__)
-app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
+app.config["DATABASE"] = "/tmp/greenbin.db"
 app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
@@ -725,7 +725,8 @@ def api_area_stats():
     return jsonify([dict(s) for s in stats])
 
 if __name__ == '__main__':
-    init_db()
+    with app.app_context():
+        init_db()
 
     # Only run auto-fill in real app, not during testing
     if not os.environ.get("TESTING"):
