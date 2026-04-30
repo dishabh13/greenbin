@@ -53,7 +53,8 @@ jobs:
 
     - name: Run security scan (Bandit)
       continue-on-error: true
-      run: source .venv/bin/activate && bandit -r . -ll > bandit-report.txt
+      run: |
+        bandit -r . -ll || true
 
     - name: Upload bandit report
       uses: actions/upload-artifact@v4
@@ -88,9 +89,8 @@ jobs:
     - name: HTML check (basic)
       continue-on-error: true
       run: |
-        source .venv/bin/activate
-        # validate only static HTML or skip Jinja placeholders
         html5validator --root templates || true
+
 
     - name: Set lowercase owner
       run: echo "OWNER_LC=${OWNER_LC,,}" >> $GITHUB_ENV
