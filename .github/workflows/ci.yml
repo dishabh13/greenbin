@@ -29,23 +29,21 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
-    
-    - name: Cache pip
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        python-version: "3.12"
 
-    - name: Install dependencies
+    - name: Install venv support
+      run: sudo apt-get update && sudo apt-get install -y python3-venv
+
+    - name: Create venv and install dependencies
       run: |
-        pip install --upgrade "pip>=24.0"
+        python3 -m venv .venv
+        source .venv/bin/activate
+        pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest flake8 bandit pip-audit pytest-cov
+        pip install pytest flake8 bandit pip-audit pytest-cov html5validator
 
     - name: Run lint
-      run: |
-        flake8 . | tee flake8-report.txt
+      run: source .venv/bin/activate && flake8 . | tee flake8-report.txt
 
     - name: Upload lint report
       uses: actions/upload-artifact@v4
@@ -55,9 +53,7 @@ jobs:
 
     - name: Run security scan (Bandit)
       continue-on-error: true
-      run: |
-        bandit -r . -ll -s B104,B101,B102,B103,B105,B106,B107,B108,B201 > bandit-report.txt
-        cat bandit-report.txt
+      run: source .venv/bin/activate && bandit -r . -ll > bandit-report.txt
 
     - name: Upload bandit report
       uses: actions/upload-artifact@v4
@@ -66,17 +62,16 @@ jobs:
         path: bandit-report.txt
 
     - name: Run dependency scan
-      run: pip-audit --format=json > pip-audit-report.json || true
+      run: source .venv/bin/activate && pip-audit --format=json > pip-audit-report.json || true
 
     - name: Upload pip-audit report
       uses: actions/upload-artifact@v4
       with:
         name: pip-audit-report
         path: pip-audit-report.json
-    
-    - name: Run tests with coverage + report
-      run: |
-        pytest --cov=. --cov-report=xml --cov-report=html --junitxml=results.xml
+
+    - name: Run tests with coverage
+      run: source .venv/bin/activate && pytest --cov=. --cov-report=xml --cov-report=html --junitxml=results.xml
 
     - name: Upload coverage report
       uses: actions/upload-artifact@v4
@@ -93,10 +88,11 @@ jobs:
     - name: HTML check (basic)
       continue-on-error: true
       run: |
-        pip install html5validator
-        html5validator templates/ || true
+        source .venv/bin/activate
+        # validate only static HTML or skip Jinja placeholders
+        html5validator --root templates || true
 
-    - name: Set lowercase owner 
+    - name: Set lowercase owner
       run: echo "OWNER_LC=${OWNER_LC,,}" >> $GITHUB_ENV
 
     - name: Log in to GHCR
@@ -105,10 +101,10 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
+
     - name: Set image name
       run: echo "IMAGE=$REGISTRY/$OWNER_LC/$IMAGE_NAME" >> $GITHUB_ENV
-  
+
     - name: Extract version
       id: vars
       run: |
@@ -123,7 +119,6 @@ jobs:
         docker build \
           --build-arg REPO_URL=https://github.com/${{ github.repository }} \
           -t $IMAGE:${{ steps.vars.outputs.VERSION }} .
-        
         if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
           docker tag $IMAGE:${{ steps.vars.outputs.VERSION }} $IMAGE:latest
         fi
