@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}GREENBIN – Login{% endblock %}
+
+{% block extra_css %}
+<style>
+.login-wrap{max-width:410px;margin:0 auto;padding:1rem}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:2rem;box-shadow:var(--shadow)}
+.login-brand{text-align:center;margin-bottom:1.8rem}
+.login-brand-icon{font-size:2.8rem;display:block;margin-bottom:.4rem}
+.login-brand h1{font-family:'Syne',sans-serif;font-size:2.4rem;font-weight:800;color:var(--accent);letter-spacing:-.04em}
+.login-brand p{color:var(--muted);font-size:.85rem;margin-top:.2rem}
+.login-title{font-family:'Syne',sans-serif;font-size:1.15rem;font-weight:700;margin-bottom:1.4rem}
+.login-fg{margin-bottom:.9rem}
+.login-label{display:block;font-size:.75rem;font-weight:500;color:var(--muted);margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.07em}
+.login-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.68rem .9rem;color:var(--txt);font-family:'DM Sans',sans-serif;font-size:.92rem;transition:.2s}
+.login-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(31,122,79,.1)}
+.login-btn{width:100%;background:var(--accent);color:#fff;font-weight:700;padding:.72rem;border-radius:8px;border:none;font-size:.97rem;font-family:'Syne',sans-serif;cursor:pointer;transition:.2s;margin-top:.4rem;letter-spacing:.01em}
+.login-btn:hover{background:var(--accent-strong);transform:translateY(-1px)}
+.login-divider{text-align:center;color:var(--muted);font-size:.78rem;margin:1.1rem 0}
+.login-link{color:var(--accent);text-decoration:none;font-weight:500}
+.login-link:hover{text-decoration:underline}
+.login-flash{padding:.65rem .95rem;border-radius:8px;margin-bottom:.9rem;font-size:.84rem;display:flex;align-items:center;gap:.5rem}
+.fl-danger{background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.2);color:var(--danger)}
+.fl-success{background:rgba(31,122,79,.1);border:1px solid rgba(31,122,79,.2);color:var(--success)}
+.login-demo{margin-top:1.25rem;background:var(--soft);border:1px solid var(--border);border-radius:10px;padding:.9rem}
+.login-demo h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:.6rem}
+.login-dr{display:flex;justify-content:space-between;align-items:center;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.8rem}
+.login-dr:last-child{border-bottom:none}
+.login-dr-role{font-weight:700;color:var(--accent);width:75px}
+.login-dr-creds{color:var(--muted);font-family:monospace;font-size:.78rem}
+.login-fill-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:.18rem .4rem;border-radius:4px;transition:.15s}
+.login-fill-btn:hover{background:var(--accent-soft);color:var(--accent)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <div class="login-brand">
+    <span class="login-brand-icon">🗑️</span>
+    <h1>GREENBIN</h1>
+    <p>Smart Waste Management System</p>
+  </div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}{% for cat,msg in messages %}
+      <div class="login-flash fl-{{ cat }}"><i class="fas fa-circle-info"></i> {{ msg }}</div>
+    {% endfor %}{% endif %}
+  {% endwith %}
+  <div class="login-card">
+    <h2 class="login-title"><i class="fas fa-right-to-bracket" style="color:var(--accent);margin-right:.45rem;"></i>Sign In</h2>
+    <form method="POST">
+      <div class="login-fg"><label class="login-label">Username</label><input type="text" name="username" id="u" class="login-input" placeholder="Enter username" required autocomplete="off"></div>
+      <div class="login-fg"><label class="login-label">Password</label><input type="password" name="password" id="p" class="login-input" placeholder="Enter password" required></div>
+      <button type="submit" class="login-btn">Sign In →</button>
+    </form>
+    <div class="login-divider">— or —</div>
+    <p style="text-align:center;font-size:.88rem;color:var(--muted);">No account? <a href="/register" class="login-link">Register here</a></p>
+  </div>
+  <div class="login-demo">
+    <h3>🔑 Demo Accounts</h3>
+    <div class="login-dr"><span class="login-dr-role">Admin</span><span class="login-dr-creds">admin / admin123</span><button class="login-fill-btn" onclick="fill('admin','admin123')">Use</button></div>
+    <div class="login-dr"><span class="login-dr-role">Collector</span><span class="login-dr-creds">ravi / ravi123</span><button class="login-fill-btn" onclick="fill('ravi','ravi123')">Use</button></div>
+    <div class="login-dr"><span class="login-dr-role">Collector</span><span class="login-dr-creds">priya / priya123</span><button class="login-fill-btn" onclick="fill('priya','priya123')">Use</button></div>
+    <div class="login-dr"><span class="login-dr-role">Resident</span><span class="login-dr-creds">amit / amit123</span><button class="login-fill-btn" onclick="fill('amit','amit123')">Use</button></div>
+    <div class="login-dr"><span class="login-dr-role">Resident</span><span class="login-dr-creds">sonal / sonal123</span><button class="login-fill-btn" onclick="fill('sonal','sonal123')">Use</button></div>
+  </div>
+</div>
+<script>function fill(u,p){document.getElementById('u').value=u;document.getElementById('p').value=p;}</script>
+{% endblock %}

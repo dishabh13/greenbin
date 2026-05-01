@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+{% block title %}Collector Dashboard - GREENBIN{% endblock %}
+
+{% block extra_css %}
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+>
+<style>
+.planner-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:1.4rem;align-items:start}
+.planner-stack{display:flex;flex-direction:column;gap:1rem}
+.surface{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+.map-card{overflow:hidden}
+.map-head,.panel-head{padding:1rem 1.2rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:1rem;align-items:flex-start}
+.map-copy h3,.panel-head h3{font-family:'Syne',sans-serif;font-size:1rem}
+.map-copy p,.panel-head p{color:var(--muted);font-size:.82rem;margin-top:.18rem;max-width:650px}
+#routeMap{height:430px;width:100%}
+.panel-body{padding:1rem 1.2rem}
+.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}
+.summary-pill{padding:.9rem 1rem;border:1px solid var(--border);border-radius:12px;background:var(--soft)}
+.summary-pill .lbl{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.summary-pill .val{font-family:'Syne',sans-serif;font-size:1.32rem;margin-top:.22rem;color:var(--txt)}
+.capacity-form{display:flex;gap:.7rem;align-items:end;flex-wrap:wrap}
+.capacity-form .fg{margin:0;flex:1;min-width:180px}
+.trip-list{display:flex;flex-direction:column;gap:1rem}
+.trip-card{border:1px solid var(--border);border-radius:16px;background:linear-gradient(180deg,#ffffff,#f8fbf9);overflow:hidden}
+.trip-card.active{border-color:rgba(31,122,79,.35);box-shadow:0 14px 28px rgba(31,122,79,.08)}
+.trip-card.complete{opacity:.82}
+.trip-header{padding:1rem 1.1rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:1rem;align-items:flex-start}
+.trip-title{display:flex;gap:.7rem;align-items:flex-start}
+.trip-chip{width:14px;height:14px;border-radius:50%;margin-top:.18rem}
+.trip-name{font-family:'Syne',sans-serif;font-size:1rem}
+.trip-copy{font-size:.78rem;color:var(--muted);margin-top:.16rem}
+.trip-metrics{display:flex;gap:.45rem;flex-wrap:wrap}
+.stop-list{padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.75rem}
+.stop-card{display:flex;gap:.85rem;padding:.9rem;border:1px solid var(--border);border-radius:14px;background:#fff}
+.stop-card.completed{background:#f3faf6;border-color:rgba(31,122,79,.18)}
+.stop-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent);font-weight:700;flex-shrink:0}
+.stop-body{flex:1}
+.stop-top{display:flex;justify-content:space-between;gap:.8rem;align-items:flex-start}
+.stop-loc{font-weight:700;font-size:.94rem}
+.stop-sub{font-size:.77rem;color:var(--muted);margin-top:.14rem}
+.stop-meta{display:flex;gap:.8rem;flex-wrap:wrap;color:var(--muted);font-size:.76rem;margin-top:.55rem}
+.trip-note{margin-top:.85rem;padding:.8rem .9rem;border-radius:12px;background:var(--soft);border:1px solid var(--border);font-size:.8rem;color:var(--muted)}
+.legend{display:flex;gap:.7rem;flex-wrap:wrap;font-size:.75rem;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:.35rem}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.side-card{padding:1rem 1.1rem}
+.side-card + .side-card{margin-top:1rem}
+.list-item{padding:.8rem 0;border-bottom:1px solid var(--border)}
+.list-item:last-child{border-bottom:none;padding-bottom:0}
+.route-banner{margin-bottom:1rem;padding:.95rem 1rem;border-radius:14px;border:1px solid rgba(31,122,79,.16);background:#eef8f1;color:#2f5a44}
+.route-banner.locked{border-color:rgba(217,119,6,.22);background:#fff8eb;color:#8a5a09}
+.route-banner strong{display:block;font-family:'Syne',sans-serif;margin-bottom:.2rem}
+@media(max-width:980px){.planner-grid{grid-template-columns:1fr}}
+@media(max-width:640px){ #routeMap{height:320px}.summary-grid{grid-template-columns:1fr}.trip-header,.stop-top,.map-head,.panel-head{flex-direction:column}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-head">
+  <h1>Collector Dashboard</h1>
+  <p>Exact route search is used for smaller assigned stop sets, and once a trip starts the map stays fixed until that trip is fully completed.</p>
+</div>
+
+{% if alerts %}
+<div class="alert-banner">
+  <div class="ab-hd"><i class="fas fa-bell"></i> {{ alerts|length }} urgent alert(s){% if alerts|length >= 3 %} <span style="font-weight:400;font-size:.7rem;color:var(--muted);">(most recent)</span>{% endif %}</div>
+  {% for a in alerts %}
+  <div class="ab-item"><span><i class="fas fa-triangle-exclamation"></i> {{ a.message }}</span><span class="txt-muted" style="font-size:.75rem;">{{ a.timestamp[:16] }}</span></div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat"><div class="stat-ico"><i class="fas fa-route"></i></div><div class="stat-lbl">Trips Planned</div><div class="stat-val">{{ trip_count }}</div></div>
+  <div class="stat"><div class="stat-ico"><i class="fas fa-truck"></i></div><div class="stat-lbl">Truck Capacity</div><div class="stat-val">{{ truck_capacity|int }}</div></div>
+  <div class="stat"><div class="stat-ico"><i class="fas fa-boxes-stacked"></i></div><div class="stat-lbl">Planned Load</div><div class="stat-val">{{ route_plan.total_load|int }}</div></div>
+  <div class="stat"><div class="stat-ico"><i class="fas fa-hourglass-half"></i></div><div class="stat-lbl">Remaining Load</div><div class="stat-val" style="color:#d97706;">{{ route_plan.remaining_load|int }}</div></div>
+  <div class="stat"><div class="stat-ico"><i class="fas fa-check-circle"></i></div><div class="stat-lbl">Stops Done</div><div class="stat-val" style="color:#1f7a4f;">{{ route_plan.completed_stops }}/{{ route_plan.total_stops }}</div></div>
+  <div class="stat"><div class="stat-ico"><i class="fas fa-clock"></i></div><div class="stat-lbl">Pending Requests</div><div class="stat-val" style="color:#2563eb;">{{ pending_requests|length }}</div></div>
+</div>
+
+<div class="planner-grid">
+  <div class="planner-stack">
+    <div class="surface map-card">
+      <div class="map-head">
+        <div class="map-copy">
+          <h3>Route Map</h3>
+          <p>
+            {% if route_plan.locked %}
+            The route is locked because the current trip is in progress. The map will refresh after the remaining stops in that trip are collected.
+            {% else %}
+            The route can be recomputed now because no trip is currently mid-run.
+            {% endif %}
+          </p>
+        </div>
+        <div class="legend">
+          <span><i class="fas fa-warehouse" style="color:var(--accent)"></i> Depot</span>
+          <span><span class="legend-dot" style="background:#1f7a4f"></span> Planned stop</span>
+          <span><span class="legend-dot" style="background:#94a3b8"></span> Completed stop</span>
+        </div>
+      </div>
+      <div id="routeMap"></div>
+    </div>
+
+    <div class="surface">
+      <div class="panel-head">
+        <div>
+          <h3>Trip Plan</h3>
+          <p>
+            Planner mode:
+            {% if route_plan.algorithm == 'exact' %}
+            exact search across every feasible trip combination and stop order for up to 10 serviceable stops.
+            {% else %}
+            heuristic routing fallback for larger assigned workloads.
+            {% endif %}
+          </p>
+        </div>
+        {% if route_plan.oversized_bins %}
+        <span class="badge bg-danger">{{ route_plan.oversized_bins }} oversized</span>
+        {% endif %}
+      </div>
+      <div class="panel-body">
+        <div class="route-banner {% if route_plan.locked %}locked{% endif %}">
+          {% if route_plan.locked %}
+          <strong>Trip {{ route_plan.active_trip_number }} is in progress</strong>
+          Finish that trip to unlock route recalculation and map updates.
+          {% else %}
+          <strong>Route is ready to update</strong>
+          The next completed trip can trigger a fresh optimized route for the remaining pickups.
+          {% endif %}
+        </div>
+
+        {% if route_plan.trips %}
+<div class="trip-list">
+  {% for trip in route_plan.trips %}
+  <div class="trip-card {% if trip.active_trip %}active{% endif %} {% if trip.complete %}complete{% endif %}">
+    <div class="trip-header">
+      <div class="trip-title">
+        <span class="trip-chip {{ trip.color_class }}"></span>
+        <div>
+          <div class="trip-name">{{ trip.name }}</div>
+          <div class="trip-copy">
+            {{ trip.total_stops }} stop(s) · {{ trip.total_distance }} km round trip · {{ trip.completed_stops }}/{{ trip.total_stops }} completed
+          </div>
+        </div>
+      </div>
+      <div class="trip-metrics">
+        {% if trip.active_trip and not trip.complete %}<span class="badge bg-info">Active trip</span>{% endif %}
+        {% if trip.complete %}
+        <span class="badge bg-success">Completed</span>
+        {% elif trip.in_progress %}
+        <span class="badge bg-warning">In progress</span>
+        {% else %}
+        <span class="badge bg-info">Queued</span>
+        {% endif %}
+        <span class="badge bg-info">Load {{ trip.load|int }}/{{ truck_capacity|int }}</span>
+        {% if trip.over_capacity %}<span class="badge bg-danger">Over by {{ trip.over_by|int }}</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="stop-list">
+      {% for stop in trip.stops %}
+      <div class="stop-card {% if stop.completed %}completed{% endif %}">
+        <div class="stop-num">
+          {% if stop.completed %}
+          <i class="fas fa-check"></i>
+          {% else %}
+          {{ stop.route_sequence }}
+          {% endif %}
+        </div>
+        <div class="stop-body">
+          <div class="stop-top">
+            <div>
+              <div class="stop-loc">{{ stop.location }}</div>
+              <div class="stop-sub">{{ stop.area }} · {{ stop.dist }} km from depot</div>
+            </div>
+            <span class="badge bg-{{ stop.color }}">{{ stop.status }}</span>
+          </div>
+          <div class="bar-bg">
+            <div class="bar-fill
+              bf-{{ stop.color if stop.color in ['success','info','warning','danger'] else 'info' }}"
+              style="width: {{ stop.pct }}%;">
+            </div>
+          </div>
+          <div class="stop-meta">
+            <span><i class="fas fa-box"></i> Planned pickup {{ stop.planned_level|int }} units</span>
+            <span><i class="fas fa-gauge"></i> Snapshot fill {{ stop.pct }}%</span>
+            <span><i class="fas fa-database"></i> Live bin {{ stop.current_level|int }} units</span>
+          </div>
+          {% if not stop.completed %}
+          <form method="POST" action="/collector/collect/{{ stop.id }}" style="margin-top:.8rem;"
+                onsubmit="return confirm('Mark Bin #{{ stop.id }} as collected for {{ trip.name }}?')">
+            <button type="submit" class="
+              btn
+              {% if trip.active_trip %}
+                btn-accent
+              {% else %}
+                btn-outline
+              {% endif %}
+              btn-sm">
+              <i class="fas fa-check-circle"></i>
+              {% if trip.active_trip %}Mark Collected{% else %}Collect Out of Sequence{% endif %}
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="trip-note">
+      {% if trip.complete %}
+      This trip is fully completed. The dashboard can now rebuild the remaining route.
+      {% elif trip.in_progress %}
+      This trip is partially completed, so the map is frozen until the remaining stop(s) in this trip are done.
+      {% elif trip.active_trip %}
+      This is the next trip the collector should work on.
+      {% else %}
+      This trip stays queued behind the active trip.
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="ei"><i class="fas fa-route"></i></div>
+  <p>No bins currently need collection. The map is centered on the depot.</p>
+</div>
+{% endif %}
+        {% else %}
+        <div class="empty-state">
+          <div class="ei"><i class="fas fa-route"></i></div>
+          <p>No bins currently need collection. The map is centered on the depot.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="surface side-card">
+      <div class="sec-title"><i class="fas fa-sliders"></i> Route Controls</div>
+      <form method="POST" action="/collector/settings" class="capacity-form">
+        <div class="fg">
+          <label>Truck Capacity</label>
+          <input type="number" name="truck_capacity" min="1" step="1" value="{{ truck_capacity|int }}" required {% if route_plan.locked %}disabled{% endif %}>
+        </div>
+        <button type="submit" class="btn btn-accent" {% if route_plan.locked %}disabled{% endif %}><i class="fas fa-rotate"></i> Recalculate</button>
+      </form>
+      {% if route_plan.locked %}
+      <p class="txt-muted mt2">Capacity changes are disabled while a trip is in progress so the displayed map does not change mid-trip.</p>
+      {% endif %}
+      <div class="summary-grid mt2">
+        <div class="summary-pill">
+          <div class="lbl">Actionable Bins</div>
+          <div class="val">{{ route_plan.actionable_bins }}</div>
+        </div>
+        <div class="summary-pill">
+          <div class="lbl">Total Distance</div>
+          <div class="val">{{ route_plan.total_distance }}</div>
+        </div>
+        <div class="summary-pill">
+          <div class="lbl">Planner</div>
+          <div class="val" style="font-size:1rem;">{{ route_plan.algorithm|capitalize }}</div>
+        </div>
+        <div class="summary-pill">
+          <div class="lbl">Depot</div>
+          <div class="val" style="font-size:1rem;">{{ depot.location }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface side-card">
+      <div class="sec-title"><i class="fas fa-clock"></i> Pending Pickup Requests</div>
+      {% if pending_requests %}
+      {% for r in pending_requests %}
+      <div class="list-item">
+        <strong style="font-size:.88rem;">{{ r.location }}</strong>
+        <div class="txt-muted" style="margin-top:.2rem;">{{ r.resident_name }} · {{ r.timestamp[:16] }}</div>
+        {% if r.waste_description %}<div style="font-size:.8rem;margin-top:.35rem;color:var(--txt);">{{ r.waste_description }}</div>{% endif %}
+        {% if r.ai_category %}<div style="margin-top:.35rem;"><span class="badge bg-info">{{ r.ai_category }}</span></div>{% endif %}
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="txt-muted">No pending pickup requests.</p>
+      {% endif %}
+    </div>
+
+    <div class="surface side-card">
+      <div class="sec-title"><i class="fas fa-history"></i> Collection History</div>
+      {% if logs %}
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Bin</th><th>Collected At</th></tr></thead>
+          <tbody>
+            {% for l in logs %}
+            <tr>
+              <td class="txt-muted">{{ loop.index }}</td>
+              <td>{{ l.location }}</td>
+              <td class="txt-muted" style="font-size:.76rem;">{{ l.timestamp[:16] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="txt-muted">No collections yet.</p>
+      {% endif %}
+    </div>
+
+    {% if route_plan.unplanned_bins %}
+    <div class="surface side-card">
+      <div class="sec-title"><i class="fas fa-box-open"></i> Empty Assigned Bins</div>
+      {% for b in route_plan.unplanned_bins %}
+      <div class="list-item">
+        <strong style="font-size:.88rem;">{{ b.location }}</strong>
+        <div class="txt-muted" style="margin-top:.2rem;">{{ b.area }} · {{ b.dist }} km from depot</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script>
+const routeData = {{ {'depot': depot, 'trips': route_plan.trips} | tojson }};
+const truckCapacity = {{ truck_capacity|int }};
+const map = L.map('routeMap', { scrollWheelZoom: false });
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const bounds = [];
+const depotIcon = L.divIcon({
+  className: '',
+  html: '<div style="width:20px;height:20px;border-radius:50%;background:#1f7a4f;border:3px solid #ffffff;box-shadow:0 0 0 3px rgba(31,122,79,.16)"></div>',
+  iconSize: [20, 20],
+  iconAnchor: [10, 10]
+});
+
+L.marker([routeData.depot.lat, routeData.depot.lng], { icon: depotIcon })
+  .addTo(map)
+  .bindPopup('<strong>' + routeData.depot.location + '</strong><br>Route start and return point');
+bounds.push([routeData.depot.lat, routeData.depot.lng]);
+
+routeData.trips.forEach((trip) => {
+  if (trip.route_coordinates.length > 1) {
+    L.polyline(trip.route_coordinates, {
+      color: trip.active_trip ? trip.color : '#94a3b8',
+      weight: trip.active_trip ? 5 : 4,
+      opacity: trip.complete ? 0.45 : 0.85,
+      dashArray: trip.complete ? '6 8' : null
+    }).addTo(map).bindPopup(
+      '<strong>' + trip.name + '</strong><br>' +
+      'Load: ' + Math.round(trip.load) + '/' + truckCapacity +
+      '<br>Distance: ' + trip.total_distance + ' km'
+    );
+  }
+
+  trip.stops.forEach((stop) => {
+    const color = stop.completed ? '#94a3b8' : (trip.active_trip ? trip.color : '#64748b');
+    bounds.push([stop.lat, stop.lng]);
+    L.circleMarker([stop.lat, stop.lng], {
+      radius: stop.completed ? 7 : 9,
+      color,
+      fillColor: color,
+      fillOpacity: 0.85,
+      weight: 2
+    }).addTo(map).bindPopup(
+      '<strong>' + stop.route_sequence + '. ' + stop.location + '</strong><br>' +
+      'Planned pickup: ' + Math.round(stop.planned_level) + ' units<br>' +
+      (stop.completed ? 'Status: completed' : 'Status: pending')
+    );
+  });
+});
+
+if (bounds.length > 1) {
+  map.fitBounds(bounds, { padding: [30, 30] });
+} else {
+  map.setView([routeData.depot.lat, routeData.depot.lng], 12);
+}
+</script>
+{% endblock %}
