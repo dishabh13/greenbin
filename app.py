@@ -1,13 +1,47 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, current_app
+from prometheus_flask_exporter import PrometheusMetrics
+import logging
+from logging.handlers import RotatingFileHandler
 from database import init_db, get_db, close_db, haversine, hp
 from datetime import datetime
 import threading, time, os, requests as req_lib, json
 from route_optimizer import plan_collector_routes
 
 app = Flask(__name__)
+metrics = PrometheusMetrics(app)
+metrics.info('app_info', 'GREENBIN app info', version='1.0.0')
+
 app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
 app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
+
+if not os.path.exists("logs"):
+    os.mkdir("logs")
+
+file_handler = RotatingFileHandler(
+    "logs/greenbin.log",
+    maxBytes=10240,
+    backupCount=5
+)
+
+file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s %(levelname)s: %(message)s"
+))
+
+file_handler.setLevel(logging.INFO)
+
+app.logger.addHandler(file_handler)
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)
+
+stream_handler.setFormatter(logging.Formatter(
+    "%(asctime)s %(levelname)s: %(message)s"
+))
+
+app.logger.addHandler(stream_handler)
+app.logger.setLevel(logging.INFO)
+
+app.logger.info("GREENBIN startup")
 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 
@@ -388,11 +422,35 @@ def login():
         username = request.form['username']
         password = hp(request.form['password'])
         db = get_db()
-        user = db.execute('SELECT * FROM users WHERE username=? AND password=?', (username, password)).fetchone()
+        user = db.execute(
+            'SELECT * FROM users WHERE username=? AND password=?',
+            (username, password)
+        ).fetchone()
+
         if user:
-            session.update({'user_id':user['id'],'username':user['username'],'role':user['role'],'name':user['name']})
+            # ✅ SUCCESS LOG
+            app.logger.info(
+                "User %s logged in as %s",
+                user['username'],
+                user['role']
+            )
+
+            session.update({
+                'user_id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+                'name': user['name']
+            })
             return redirect(url_for(f"{user['role']}_dashboard"))
+
+        # ⚠️ FAILURE LOG
+        app.logger.warning(
+            "Invalid login attempt for username: %s",
+            username
+        )
+
         flash('Invalid credentials', 'danger')
+
     return render_template('login.html')
 
 @app.route('/logout')
@@ -473,6 +531,12 @@ def add_request():
         if not existing:
             db.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (?,?,?,0)",
                        (bin_id, f"Bin at '{bin_['location']}' is FULL!", datetime.now().isoformat()))
+            
+    app.logger.info(
+    "Pickup request submitted by user %s for bin %s",
+    session['username'],
+    bin_id
+    )
     db.commit()
     flash(f'Pickup request submitted! Added {amount} units to bin.','success')
     return redirect(url_for('resident_dashboard'))
@@ -585,6 +649,11 @@ def collect_bin(bin_id):
             flash('Stop collected. The map stays locked until every stop in this trip is completed.', 'info')
     else:
         flash('Bin collected and reset to empty!', 'success')
+    app.logger.info(
+    "Collector %s collected bin %s",
+    session['username'],
+    bin_id
+    )
     db.commit()
     return redirect(url_for('collector_dashboard'))
 
@@ -645,6 +714,11 @@ def add_bin():
                 float(request.form['capacity']),
                 float(request.form.get('lat', DEPOT_LAT)),
                 float(request.form.get('lng', DEPOT_LNG))))
+    app.logger.info(
+    "Admin %s added new bin at %s",
+    session['username'],
+    request.form['location']
+    )
     db.commit()
     flash('New bin added!','success')
     return redirect(url_for('admin_dashboard'))
@@ -656,6 +730,11 @@ def edit_bin(bin_id):
     db.execute('UPDATE bins SET location=?,area=?,capacity=? WHERE id=?',
                (request.form['location'], request.form['area'],
                 float(request.form['capacity']), bin_id))
+    app.logger.info(
+    "Admin %s edited bin %s",
+    session['username'],
+    bin_id
+    )
     db.commit()
     flash('Bin updated!','success')
     return redirect(url_for('admin_dashboard'))
@@ -666,6 +745,11 @@ def delete_bin(bin_id):
     db = get_db()
     db.execute('DELETE FROM bins WHERE id=?', (bin_id,))
     db.execute('DELETE FROM assignments WHERE bin_id=?', (bin_id,))
+    app.logger.warning(
+    "Admin %s deleted bin %s",
+    session['username'],
+    bin_id
+    )
     db.commit()
     flash('Bin deleted.','info')
     return redirect(url_for('admin_dashboard'))
@@ -732,4 +816,8 @@ if __name__ == '__main__':
         start_auto_fill()
 
     debug = os.environ.get("FLASK_DEBUG", "False") == "True"
-    app.run(host="0.0.0.0", port=5000, debug=debug) # nosec B104
+    
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=debug)
+    except Exception as e:
+        app.logger.error("Application failed: %s", str(e))
