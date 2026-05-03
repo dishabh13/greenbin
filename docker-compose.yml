@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  greenbin:
+    image: ghcr.io/${OWNER}/greenbin-app:${TAG:-latest}
+    ports:
+      - "5000:5000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - TESTING=0  # Disable auto-fill thread in prod
+    restart: unless-stopped

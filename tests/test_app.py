@@ -1,6 +1,6 @@
 import sys
 import os
-
+from database import init_db  
 if os.path.exists("test.db"):
     os.remove("test.db")
 
@@ -16,7 +16,7 @@ def client():
     app.config["DATABASE"] = "test.db" 
 
     with app.app_context():
-        init_db()   
+        init_db()  # Create tables NOW
 
     with app.test_client() as client:
         yield client
