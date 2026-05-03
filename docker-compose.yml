@@ -2,11 +2,22 @@ version: '3.8'
 
 services:
   greenbin:
-    image: ghcr.io/${OWNER}/greenbin-app:${TAG:-latest}
+    image: ghcr.io/dishabh13/greenbin-app:v1.2
     ports:
       - "5000:5000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
     environment:
-      - SECRET_KEY=${SECRET_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - TESTING=0  # Disable auto-fill thread in prod
-    restart: unless-stopped
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: greenbin
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
