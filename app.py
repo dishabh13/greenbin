@@ -11,7 +11,7 @@ app = Flask(__name__)
 metrics = PrometheusMetrics(app)
 metrics.info('app_info', 'GREENBIN app info', version='1.0.0')
 
-app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
+app.config["DATABASE"] = "greenbin.db"
 app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
