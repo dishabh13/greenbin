@@ -474,9 +474,14 @@ def register():
         try:
             db.execute('INSERT INTO users (name,username,password,role) VALUES (%s,%s,%s,%s)', (name,username,password,role))
             db.commit()
+            
+            # ✅ Add log statement so it appears in Render Web Service Logs
+            app.logger.info("New user registered successfully: %s as %s", username, role)
+            
             flash('Account created! Please login.','success')
             return redirect(url_for('login'))
         except:
+            db.rollback()
             flash('Username already taken.','danger')
     return render_template('register.html')
 
