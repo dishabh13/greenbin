@@ -3,7 +3,7 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app
 
 # Install system deps
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl libpq-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy + install Python deps FIRST (for Docker layer caching)
 COPY requirements.txt .

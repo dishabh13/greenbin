@@ -11,7 +11,7 @@ app = Flask(__name__)
 metrics = PrometheusMetrics(app)
 metrics.info('app_info', 'GREENBIN app info', version='1.0.0')
 
-app.config["DATABASE"] = "greenbin.db"
+app.config["DATABASE"] = os.path.join(os.path.dirname(__file__), "greenbin.db")
 app.secret_key = os.environ.get("SECRET_KEY")
 app.teardown_appcontext(close_db)
 
@@ -67,7 +67,7 @@ def enrich_bin(b):
 
 def get_collector_settings(db, collector_id):
     settings = db.execute(
-        'SELECT * FROM collector_settings WHERE collector_id=?',
+        'SELECT * FROM collector_settings WHERE collector_id=%s',
         (collector_id,),
     ).fetchone()
     if settings:
@@ -75,12 +75,12 @@ def get_collector_settings(db, collector_id):
 
     db.execute(
         '''INSERT INTO collector_settings (collector_id, truck_capacity, start_lat, start_lng)
-           VALUES (?, ?, ?, ?)''',
+           VALUES (%s, %s, %s, %s)''',
         (collector_id, 350, DEPOT_LAT, DEPOT_LNG),
     )
     db.commit()
     return db.execute(
-        'SELECT * FROM collector_settings WHERE collector_id=?',
+        'SELECT * FROM collector_settings WHERE collector_id=%s',
         (collector_id,),
     ).fetchone()
 
@@ -89,7 +89,7 @@ def get_assigned_bins(db, collector_id):
     raw_bins = db.execute(
         '''SELECT DISTINCT b.* FROM bins b
            JOIN assignments a ON b.id=a.bin_id
-           WHERE a.collector_id=?''',
+           WHERE a.collector_id=%s''',
         (collector_id,),
     ).fetchall()
     return [enrich_bin(b) for b in raw_bins]
@@ -98,7 +98,7 @@ def get_assigned_bins(db, collector_id):
 def get_active_route_plan(db, collector_id):
     return db.execute(
         '''SELECT * FROM route_plans
-           WHERE collector_id=? AND status='active'
+           WHERE collector_id=%s AND status='active'
            ORDER BY id DESC LIMIT 1''',
         (collector_id,),
     ).fetchone()
@@ -110,13 +110,13 @@ def get_route_plan_progress(db, plan_id):
                COUNT(*) AS total_stops,
                COALESCE(SUM(completed), 0) AS completed_stops
            FROM route_plan_stops
-           WHERE plan_id=?''',
+           WHERE plan_id=%s''',
         (plan_id,),
     ).fetchone()
     partial_trip = db.execute(
         '''SELECT trip_number
            FROM route_plan_stops
-           WHERE plan_id=?
+           WHERE plan_id=%s
            GROUP BY trip_number
            HAVING SUM(completed) > 0 AND SUM(completed) < COUNT(*)''',
         (plan_id,),
@@ -131,8 +131,8 @@ def get_route_plan_progress(db, plan_id):
 def close_route_plan(db, plan_id, status):
     db.execute(
         '''UPDATE route_plans
-           SET status=?, completed_at=?
-           WHERE id=?''',
+           SET status=%s, completed_at=%s
+           WHERE id=%s''',
         (status, datetime.now().isoformat(), plan_id),
     )
 
@@ -143,7 +143,7 @@ def create_route_plan(db, collector_id, bins, truck_capacity, depot):
     cursor = db.execute(
         '''INSERT INTO route_plans
            (collector_id, truck_capacity, depot_lat, depot_lng, total_distance, total_load, algorithm, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)''',
+           VALUES (%s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id''',
         (
             collector_id,
             truck_capacity,
@@ -155,13 +155,13 @@ def create_route_plan(db, collector_id, bins, truck_capacity, depot):
             now,
         ),
     )
-    plan_id = cursor.lastrowid
+    plan_id = cursor.fetchone()['id']
     for trip in planned['trips']:
         for stop in trip['stops']:
             db.execute(
                 '''INSERT INTO route_plan_stops
                    (plan_id, trip_number, stop_order, bin_id, planned_load, completed)
-                   VALUES (?, ?, ?, ?, ?, 0)''',
+                   VALUES (%s, %s, %s, %s, %s, 0)''',
                 (
                     plan_id,
                     trip['trip_number'],
@@ -180,7 +180,7 @@ def hydrate_route_plan(db, plan_row, bins, depot):
         '''SELECT rps.*, b.location, b.area, b.capacity, b.current_level, b.lat, b.lng
            FROM route_plan_stops rps
            JOIN bins b ON b.id=rps.bin_id
-           WHERE rps.plan_id=?
+           WHERE rps.plan_id=%s
            ORDER BY rps.trip_number, rps.stop_order''',
         (plan_row['id'],),
     ).fetchall()
@@ -291,7 +291,7 @@ def get_dashboard_route_plan(db, collector_id, bins, truck_capacity, depot):
         planned_ids = [
             row['bin_id']
             for row in db.execute(
-                'SELECT bin_id FROM route_plan_stops WHERE plan_id=? ORDER BY trip_number, stop_order',
+                'SELECT bin_id FROM route_plan_stops WHERE plan_id=%s ORDER BY trip_number, stop_order',
                 (active_plan['id'],),
             ).fetchall()
         ]
@@ -375,25 +375,30 @@ _auto_fill_running = False
 
 def auto_fill_bins():
     """Every 60s in dev (simulates 1hr IoT increment), raise bins by ~5% of capacity."""
-    import sqlite3
+    import psycopg2
+    import psycopg2.extras
+    import os
     while True:
         time.sleep(60)  # 60 seconds = "1 simulated hour"
         try:
-            conn = sqlite3.connect(current_app.config["DATABASE"])
-            conn.row_factory = sqlite3.Row
+            conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+            conn.cursor_factory = psycopg2.extras.RealDictCursor
             c = conn.cursor()
-            bins = c.execute('SELECT id, capacity, current_level FROM bins').fetchall()
+            c.execute('SELECT id, capacity, current_level FROM bins')
+            bins = c.fetchall()
             for b in bins:
                 if b['current_level'] < b['capacity']:
                     increment = b['capacity'] * 0.05  # 5% per tick
                     new_level = min(b['current_level'] + increment, b['capacity'])
-                    c.execute("UPDATE bins SET current_level=?, last_updated=datetime('now') WHERE id=?",
+                    c.execute("UPDATE bins SET current_level=%s, last_updated=NOW() WHERE id=%s",
                               (new_level, b['id']))
                     if new_level >= b['capacity']:
-                        existing = c.execute('SELECT id FROM alerts WHERE bin_id=? AND resolved=0', (b['id'],)).fetchone()
+                        c.execute('SELECT id FROM alerts WHERE bin_id=%s AND resolved=0', (b['id'],))
+                        existing = c.fetchone()
                         if not existing:
-                            loc = c.execute('SELECT location FROM bins WHERE id=?', (b['id'],)).fetchone()['location']
-                            c.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (?,?,datetime('now'),0)",
+                            c.execute('SELECT location FROM bins WHERE id=%s', (b['id'],))
+                            loc = c.fetchone()['location']
+                            c.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (%s,%s,NOW(),0)",
                                       (b['id'], f"Bin at '{loc}' is FULL! (Auto-detected)"))
             conn.commit()
             conn.close()
@@ -423,7 +428,7 @@ def login():
         password = hp(request.form['password'])
         db = get_db()
         user = db.execute(
-            'SELECT * FROM users WHERE username=? AND password=?',
+            'SELECT * FROM users WHERE username=%s AND password=%s',
             (username, password)
         ).fetchone()
 
@@ -467,7 +472,7 @@ def register():
         role     = request.form.get('role','resident')
         db = get_db()
         try:
-            db.execute('INSERT INTO users (name,username,password,role) VALUES (?,?,?,?)', (name,username,password,role))
+            db.execute('INSERT INTO users (name,username,password,role) VALUES (%s,%s,%s,%s)', (name,username,password,role))
             db.commit()
             flash('Account created! Please login.','success')
             return redirect(url_for('login'))
@@ -484,7 +489,7 @@ def resident_dashboard():
     bins = [enrich_bin(b) for b in db.execute('SELECT * FROM bins').fetchall()]
     requests = db.execute('''SELECT pr.*, b.location FROM pickup_requests pr
                              JOIN bins b ON pr.bin_id=b.id
-                             WHERE pr.user_id=? ORDER BY pr.timestamp DESC LIMIT 15''',
+                             WHERE pr.user_id=%s ORDER BY pr.timestamp DESC LIMIT 15''',
                           (session['user_id'],)).fetchall()
     return render_template('resident_dashboard.html', bins=bins, requests=requests)
 
@@ -511,25 +516,25 @@ def add_request():
         print(f"Error: {e}")
 
     db = get_db()
-    bin_ = db.execute('SELECT * FROM bins WHERE id=?', (bin_id,)).fetchone()
+    bin_ = db.execute('SELECT * FROM bins WHERE id=%s', (bin_id,)).fetchone()
     if not bin_:
         flash('Bin not found.','danger')
         return redirect(url_for('resident_dashboard'))
 
     new_level = min(bin_['current_level'] + amount, bin_['capacity'])
-    db.execute("UPDATE bins SET current_level=?, last_updated=datetime('now') WHERE id=?", (new_level, bin_id))
+    db.execute("UPDATE bins SET current_level=%s, last_updated=NOW() WHERE id=%s", (new_level, bin_id))
     db.execute('''INSERT INTO pickup_requests
                   (user_id,bin_id,waste_description,ai_category,ai_advice,amount,status,timestamp)
-                  VALUES (?,?,?,?,?,?,?,?)''',
+                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
                (session['user_id'], bin_id, description,
                 ai.get('category',''), ai.get('disposal_tip',''),
                 amount, 'pending', datetime.now().isoformat()))
-    db.execute('INSERT INTO waste_logs (user_id,bin_id,amount,timestamp) VALUES (?,?,?,?)',
+    db.execute('INSERT INTO waste_logs (user_id,bin_id,amount,timestamp) VALUES (%s,%s,%s,%s)',
                (session['user_id'], bin_id, amount, datetime.now().isoformat()))
     if new_level >= bin_['capacity']:
-        existing = db.execute('SELECT id FROM alerts WHERE bin_id=? AND resolved=0', (bin_id,)).fetchone()
+        existing = db.execute('SELECT id FROM alerts WHERE bin_id=%s AND resolved=0', (bin_id,)).fetchone()
         if not existing:
-            db.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (?,?,?,0)",
+            db.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (%s,%s,%s,0)",
                        (bin_id, f"Bin at '{bin_['location']}' is FULL!", datetime.now().isoformat()))
             
     app.logger.info(
@@ -558,19 +563,19 @@ def collector_dashboard():
 
     logs = db.execute('''SELECT cl.*, b.location FROM collection_logs cl
                          JOIN bins b ON cl.bin_id=b.id
-                         WHERE cl.collector_id=? ORDER BY cl.timestamp DESC LIMIT 15''',
+                         WHERE cl.collector_id=%s ORDER BY cl.timestamp DESC LIMIT 15''',
                       (session['user_id'],)).fetchall()
     alerts = db.execute('''SELECT DISTINCT al.*, b.location FROM alerts al
                            JOIN bins b ON al.bin_id=b.id
                            JOIN assignments a ON b.id=a.bin_id
-                           WHERE a.collector_id=? AND al.resolved=0 LIMIT 3''',
+                           WHERE a.collector_id=%s AND al.resolved=0 LIMIT 3''',
                         (session['user_id'],)).fetchall()
     pending_requests = db.execute('''SELECT DISTINCT pr.*, b.location, u.name as resident_name
                                      FROM pickup_requests pr
                                      JOIN bins b ON pr.bin_id=b.id
                                      JOIN users u ON pr.user_id=u.id
                                      JOIN assignments a ON b.id=a.bin_id
-                                     WHERE a.collector_id=? AND pr.status='pending'
+                                     WHERE a.collector_id=%s AND pr.status='pending'
                                      ORDER BY pr.timestamp DESC''',
                                   (session['user_id'],)).fetchall()
     trip_count = len(route_plan['trips'])
@@ -596,7 +601,7 @@ def update_collector_settings():
 
     db.execute(
         '''INSERT INTO collector_settings (collector_id, truck_capacity, start_lat, start_lng)
-           VALUES (?, ?, ?, ?)
+           VALUES (%s, %s, %s, %s)
            ON CONFLICT(collector_id) DO UPDATE SET truck_capacity=excluded.truck_capacity''',
         (session['user_id'], truck_capacity, DEPOT_LAT, DEPOT_LNG),
     )
@@ -615,27 +620,27 @@ def collect_bin(bin_id):
     if active_plan:
         stop_row = db.execute(
             '''SELECT * FROM route_plan_stops
-               WHERE plan_id=? AND bin_id=? AND completed=0''',
+               WHERE plan_id=%s AND bin_id=%s AND completed=0''',
             (active_plan['id'], bin_id),
         ).fetchone()
 
-    db.execute("UPDATE bins SET current_level=0, last_updated=datetime('now') WHERE id=?", (bin_id,))
-    db.execute("INSERT INTO collection_logs (collector_id,bin_id,timestamp) VALUES (?,?,?)",
+    db.execute("UPDATE bins SET current_level=0, last_updated=NOW() WHERE id=%s", (bin_id,))
+    db.execute("INSERT INTO collection_logs (collector_id,bin_id,timestamp) VALUES (%s,%s,%s)",
                (session['user_id'], bin_id, datetime.now().isoformat()))
-    db.execute('UPDATE alerts SET resolved=1 WHERE bin_id=? AND resolved=0', (bin_id,))
-    db.execute("UPDATE pickup_requests SET status='completed' WHERE bin_id=? AND status='pending'", (bin_id,))
+    db.execute('UPDATE alerts SET resolved=1 WHERE bin_id=%s AND resolved=0', (bin_id,))
+    db.execute("UPDATE pickup_requests SET status='completed' WHERE bin_id=%s AND status='pending'", (bin_id,))
     if stop_row:
         db.execute(
             '''UPDATE route_plan_stops
-               SET completed=1, completed_at=?
-               WHERE id=?''',
+               SET completed=1, completed_at=%s
+               WHERE id=%s''',
             (datetime.now().isoformat(), stop_row['id']),
         )
 
         trip_state = db.execute(
             '''SELECT COUNT(*) AS total_stops, COALESCE(SUM(completed), 0) AS completed_stops
                FROM route_plan_stops
-               WHERE plan_id=? AND trip_number=?''',
+               WHERE plan_id=%s AND trip_number=%s''',
             (active_plan['id'], stop_row['trip_number']),
         ).fetchone()
         all_state = get_route_plan_progress(db, active_plan['id'])
@@ -709,7 +714,7 @@ def admin_dashboard():
 def add_bin():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     db = get_db()
-    db.execute("INSERT INTO bins (location,area,capacity,current_level,lat,lng,last_updated) VALUES (?,?,?,0,?,?,datetime('now'))",
+    db.execute("INSERT INTO bins (location,area,capacity,current_level,lat,lng,last_updated) VALUES (%s,%s,%s,0,%s,%s,NOW())",
                (request.form['location'], request.form['area'],
                 float(request.form['capacity']),
                 float(request.form.get('lat', DEPOT_LAT)),
@@ -727,7 +732,7 @@ def add_bin():
 def edit_bin(bin_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     db = get_db()
-    db.execute('UPDATE bins SET location=?,area=?,capacity=? WHERE id=?',
+    db.execute('UPDATE bins SET location=%s,area=%s,capacity=%s WHERE id=%s',
                (request.form['location'], request.form['area'],
                 float(request.form['capacity']), bin_id))
     app.logger.info(
@@ -743,8 +748,8 @@ def edit_bin(bin_id):
 def delete_bin(bin_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     db = get_db()
-    db.execute('DELETE FROM bins WHERE id=?', (bin_id,))
-    db.execute('DELETE FROM assignments WHERE bin_id=?', (bin_id,))
+    db.execute('DELETE FROM bins WHERE id=%s', (bin_id,))
+    db.execute('DELETE FROM assignments WHERE bin_id=%s', (bin_id,))
     app.logger.warning(
     "Admin %s deleted bin %s",
     session['username'],
@@ -760,9 +765,9 @@ def assign_collector():
     collector_id = request.form['collector_id']
     bin_id       = request.form['bin_id']
     db = get_db()
-    existing = db.execute('SELECT id FROM assignments WHERE collector_id=? AND bin_id=?',(collector_id,bin_id)).fetchone()
+    existing = db.execute('SELECT id FROM assignments WHERE collector_id=%s AND bin_id=%s',(collector_id,bin_id)).fetchone()
     if not existing:
-        db.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (?,?)',(collector_id,bin_id))
+        db.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (%s,%s)',(collector_id,bin_id))
         db.commit()
         flash('Collector assigned!','success')
     else:
@@ -773,7 +778,7 @@ def assign_collector():
 def unassign_collector():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     db = get_db()
-    db.execute('DELETE FROM assignments WHERE collector_id=? AND bin_id=?',
+    db.execute('DELETE FROM assignments WHERE collector_id=%s AND bin_id=%s',
                (request.form['collector_id'], request.form['bin_id']))
     db.commit()
     flash('Assignment removed.','info')
@@ -783,7 +788,7 @@ def unassign_collector():
 def resolve_alert(alert_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     db = get_db()
-    db.execute('UPDATE alerts SET resolved=1 WHERE id=?',(alert_id,))
+    db.execute('UPDATE alerts SET resolved=1 WHERE id=%s',(alert_id,))
     db.commit()
     return redirect(url_for('admin_dashboard'))
 
