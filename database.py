@@ -1,17 +1,35 @@
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from flask import g
 import os
 import hashlib
 import math
-from flask import g, current_app
+from flask import current_app
 
-DATABASE = os.path.join(os.path.dirname(__file__), 'greenbin.db')
+class DBWrapper:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql, params=None):
+        cursor = self.conn.cursor()
+        cursor.execute(sql, params)
+        return cursor
+        
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
 
 def get_db():
     db = getattr(g, '_database', None)
     if db is None:
-        db = g._database = sqlite3.connect(current_app.config["DATABASE"])
-        db.row_factory = sqlite3.Row
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        db = g._database = DBWrapper(conn)
     return db
 
 def close_db(e=None):
@@ -31,19 +49,19 @@ def hp(p):
 
 def init_db():
     db = get_db()
-    c = db.cursor()
 
-    c.executescript('''
+    db.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'resident'
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS bins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             location TEXT NOT NULL,
             area TEXT NOT NULL DEFAULT 'Central',
             capacity REAL NOT NULL DEFAULT 100,
@@ -52,9 +70,10 @@ def init_db():
             lng REAL NOT NULL DEFAULT 77.5946,
             last_updated TEXT
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS pickup_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             bin_id INTEGER NOT NULL,
             waste_type TEXT,
@@ -67,9 +86,10 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (bin_id) REFERENCES bins(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS waste_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL,
             bin_id INTEGER NOT NULL,
             amount REAL NOT NULL,
@@ -77,24 +97,27 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (bin_id) REFERENCES bins(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS collection_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             collector_id INTEGER NOT NULL,
             bin_id INTEGER NOT NULL,
             timestamp TEXT NOT NULL,
             FOREIGN KEY (collector_id) REFERENCES users(id),
             FOREIGN KEY (bin_id) REFERENCES bins(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             collector_id INTEGER NOT NULL,
             bin_id INTEGER NOT NULL,
             FOREIGN KEY (collector_id) REFERENCES users(id),
             FOREIGN KEY (bin_id) REFERENCES bins(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS collector_settings (
             collector_id INTEGER PRIMARY KEY,
             truck_capacity REAL NOT NULL DEFAULT 350,
@@ -102,9 +125,10 @@ def init_db():
             start_lng REAL NOT NULL DEFAULT 77.5946,
             FOREIGN KEY (collector_id) REFERENCES users(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS route_plans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             collector_id INTEGER NOT NULL,
             truck_capacity REAL NOT NULL,
             depot_lat REAL NOT NULL,
@@ -117,9 +141,10 @@ def init_db():
             completed_at TEXT,
             FOREIGN KEY (collector_id) REFERENCES users(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS route_plan_stops (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             plan_id INTEGER NOT NULL,
             trip_number INTEGER NOT NULL,
             stop_order INTEGER NOT NULL,
@@ -130,9 +155,10 @@ def init_db():
             FOREIGN KEY (plan_id) REFERENCES route_plans(id),
             FOREIGN KEY (bin_id) REFERENCES bins(id)
         );
-
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             bin_id INTEGER NOT NULL,
             message TEXT NOT NULL,
             timestamp TEXT NOT NULL,
@@ -151,8 +177,9 @@ def init_db():
     ]
     for u in users:
         try:
-            c.execute('INSERT INTO users (name,username,password,role) VALUES (?,?,?,?)', u)
-        except: pass
+            db.execute('INSERT INTO users (name,username,password,role) VALUES (%s,%s,%s,%s) ON CONFLICT (username) DO NOTHING', u)
+        except Exception:
+            db.rollback()
 
     # Seed bins with real Bengaluru-area coordinates
     bins_data = [
@@ -165,56 +192,61 @@ def init_db():
         ('Gandhi Nagar – Block C',     'South Zone',  150,  90, 12.9270, 77.5950),
         ('Tech Park – Gate 2',         'East Zone',   200,  60, 12.9352, 77.6245),
     ]
-    count = c.execute('SELECT COUNT(*) FROM bins').fetchone()[0]
+    count = db.execute('SELECT COUNT(*) AS count FROM bins').fetchone()['count']
     if count == 0:
         for b in bins_data:
-            c.execute('''INSERT INTO bins (location,area,capacity,current_level,lat,lng,last_updated)
-                         VALUES (?,?,?,?,?,?,datetime('now'))''', b)
+            db.execute('''INSERT INTO bins (location,area,capacity,current_level,lat,lng,last_updated)
+                         VALUES (%s,%s,%s,%s,%s,%s,NOW())''', b)
 
     # Seed assignments
-    collector_ids = [r[0] for r in c.execute("SELECT id FROM users WHERE role='collector'").fetchall()]
-    bin_ids = [r[0] for r in c.execute("SELECT id FROM bins").fetchall()]
+    collector_ids = [r['id'] for r in db.execute("SELECT id FROM users WHERE role='collector'").fetchall()]
+    bin_ids = [r['id'] for r in db.execute("SELECT id FROM bins").fetchall()]
     if collector_ids and bin_ids:
         half = len(bin_ids)//2
         for bid in bin_ids[:half+1]:
-            try: c.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (?,?)', (collector_ids[0], bid))
-            except: pass
+            try:
+                db.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (%s,%s)', (collector_ids[0], bid))
+            except Exception:
+                db.rollback()
         for bid in bin_ids[half:]:
-            try: c.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (?,?)', (collector_ids[1], bid))
-            except: pass
+            try:
+                db.execute('INSERT INTO assignments (collector_id,bin_id) VALUES (%s,%s)', (collector_ids[1], bid))
+            except Exception:
+                db.rollback()
 
     for collector_id in collector_ids:
         try:
-            c.execute(
+            db.execute(
                 '''INSERT INTO collector_settings (collector_id, truck_capacity, start_lat, start_lng)
-                   VALUES (?, ?, ?, ?)''',
+                   VALUES (%s, %s, %s, %s) ON CONFLICT (collector_id) DO NOTHING''',
                 (collector_id, 350, 12.9716, 77.5946)
             )
-        except:
-            pass
+        except Exception:
+            db.rollback()
 
     # Seed alerts for full bins
-    full_bins = c.execute('SELECT id,location FROM bins WHERE current_level >= capacity').fetchall()
+    full_bins = db.execute('SELECT id,location FROM bins WHERE current_level >= capacity').fetchall()
     for b in full_bins:
         try:
-            c.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (?,?,datetime('now'),0)",
+            db.execute("INSERT INTO alerts (bin_id,message,timestamp,resolved) VALUES (%s,%s,NOW(),0)",
                       (b['id'], f"Bin at '{b['location']}' is FULL!"))
-        except: pass
+        except Exception:
+            db.rollback()
 
-    c.execute('''DELETE FROM assignments
+    db.execute('''DELETE FROM assignments
                  WHERE id NOT IN (
                      SELECT MIN(id)
                      FROM assignments
                      GROUP BY collector_id, bin_id
                  )''')
-    c.execute('''DELETE FROM route_plan_stops
+    db.execute('''DELETE FROM route_plan_stops
                  WHERE id NOT IN (
                      SELECT MIN(id)
                      FROM route_plan_stops
                      GROUP BY plan_id, trip_number, stop_order
                  )''')
-    c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_unique ON assignments (collector_id, bin_id)')
-    c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_route_plan_stop_unique ON route_plan_stops (plan_id, trip_number, stop_order)')
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_unique ON assignments (collector_id, bin_id)')
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_route_plan_stop_unique ON route_plan_stops (plan_id, trip_number, stop_order)')
 
     db.commit()
     print("Database initialized with seed data.")
